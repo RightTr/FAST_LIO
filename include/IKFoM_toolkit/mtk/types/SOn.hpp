@@ -199,6 +199,11 @@ struct SO3 : public Eigen::Quaternion<_scalar, Options> {
 	Quaternion operator/(const Eigen::QuaternionBase<OtherDerived> &r) const {
 		return *this * r.conjugate();
 	}
+
+	static SO3 Identity() 
+	{
+    	return SO3(base::Identity());
+	}
 	
 	/**
 	 * Construct from real part and three imaginary parts.

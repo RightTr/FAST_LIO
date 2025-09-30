@@ -56,9 +56,12 @@
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/Vector3.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <livox_ros_driver/CustomMsg.h>
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
+#include <reloc/reloc.h>
+#include <atomic>
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -83,6 +86,7 @@ condition_variable sig_buffer;
 
 string root_dir = ROOT_DIR;
 string map_file_path, lid_topic, imu_topic;
+string reloc_topic;
 
 double res_mean_last = 0.05, total_residual = 0.0;
 double last_timestamp_lidar = 0, last_timestamp_imu = -1.0;
@@ -94,6 +98,7 @@ int    iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0, laserCloudVal
 bool   point_selected_surf[100000] = {0};
 bool   lidar_pushed, flg_first_scan = true, flg_exit = false, flg_EKF_inited;
 bool   scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false;
+bool reloc_en = false;
 int lidar_type;
 
 vector<vector<int>>  pointSearchInd_surf; 
@@ -104,6 +109,11 @@ vector<double>       extrinR(9, 0.0);
 deque<double>                     time_buffer;
 deque<PointCloudXYZI::Ptr>        lidar_buffer;
 deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
+
+mutex mtx_reloc;
+condition_variable sig_reloc;
+RelocState reloc_state;
+std::atomic<bool> relocalize_flag(false);
 
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
@@ -361,6 +371,28 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
     imu_buffer.push_back(msg);
     mtx_buffer.unlock();
     sig_buffer.notify_all();
+}
+
+void reloc_cbk(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &msg_in) 
+{
+    double timestamp = msg_in->header.stamp.toSec();
+    double x = msg_in->pose.pose.position.x;
+    double y = msg_in->pose.pose.position.y;
+    double z = msg_in->pose.pose.position.z;
+
+    double qx = msg_in->pose.pose.orientation.x;
+    double qy = msg_in->pose.pose.orientation.y;
+    double qz = msg_in->pose.pose.orientation.z;
+    double qw = msg_in->pose.pose.orientation.w;
+    
+    reloc_state = RelocState(x, y, z,
+                    qx, qy, qz, qw, timestamp);
+
+    mtx_reloc.unlock();
+    relocalize_flag.store(true); 
+
+    ROS_INFO("Reloc received: (%.3f, %.3f, %.3f), quat=(%.3f, %.3f, %.3f, %.3f)",
+            x, y, z, qx, qy, qz, qw);
 }
 
 double lidar_mean_scantime = 0.0;
@@ -762,10 +794,12 @@ int main(int argc, char** argv)
     nh.param<bool>("publish/scan_publish_en",scan_pub_en, true);
     nh.param<bool>("publish/dense_publish_en",dense_pub_en, true);
     nh.param<bool>("publish/scan_bodyframe_pub_en",scan_body_pub_en, true);
+    nh.param<bool>("reloc/reloc_en", reloc_en, false);
     nh.param<int>("max_iteration",NUM_MAX_ITERATIONS,4);
     nh.param<string>("map_file_path",map_file_path,"");
     nh.param<string>("common/lid_topic",lid_topic,"/livox/lidar");
     nh.param<string>("common/imu_topic", imu_topic,"/livox/imu");
+    nh.param<string>("reloc/reloc_topic", reloc_topic,"/reloc/manual");
     nh.param<bool>("common/time_sync_en", time_sync_en, false);
     nh.param<double>("common/time_offset_lidar_to_imu", time_diff_lidar_to_imu, 0.0);
     nh.param<double>("filter_size_corner",filter_size_corner_min,0.5);
@@ -845,6 +879,9 @@ int main(int argc, char** argv)
     ros::Subscriber sub_pcl = p_pre->lidar_type == AVIA ? \
         nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
         nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
+    
+    ros::Subscriber sub_reloc = nh.subscribe(reloc_topic, 10, reloc_cbk);
+
     ros::Subscriber sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
     ros::Publisher pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2>
             ("/cloud_registered", 100000);
@@ -866,6 +903,39 @@ int main(int argc, char** argv)
     {
         if (flg_exit) break;
         ros::spinOnce();
+
+        if(reloc_en)
+        {
+            if(relocalize_flag.load())
+            {
+                ROS_INFO("...... Enter Relocalization Mode ......");
+
+                feats_down_world->clear();
+                featsFromMap->clear();
+                p_imu->Reset();
+                state_ikfom state_point_reloc;
+
+                std::lock_guard<std::mutex> lock(mtx_reloc);
+                {
+                    ROS_INFO("...... Start Relocalization ......");
+                    state_point_reloc.pos = Eigen::Vector3d(reloc_state.x_, reloc_state.y_, reloc_state.z_);
+                    state_point_reloc.rot = Eigen::Quaterniond(reloc_state.qw_, reloc_state.qx_,
+                                                reloc_state.qy_, reloc_state.qz_);
+                }        
+                kf.reset(state_point_reloc);
+                
+                ROS_INFO("Reloc: pos=(%.2f %.2f %.2f), quat=(%.2f %.2f %.2f %.2f)",
+                    state_point_reloc.pos.x(), state_point_reloc.pos.y(), state_point_reloc.pos.z(),
+                    state_point_reloc.rot.x(), state_point_reloc.rot.y(), state_point_reloc.rot.z(), state_point_reloc.rot.w());
+
+
+                relocalize_flag.store(false);
+                flg_first_scan = true;
+                ROS_INFO("...... Relocalization Complete ......");
+                continue;
+            }
+        }   
+
         if(sync_packages(Measures)) 
         {
             if (flg_first_scan)

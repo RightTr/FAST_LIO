@@ -167,6 +167,40 @@ public:
 		x_.build_vect_state();
 	}
 
+	void reset()
+	{
+		x_.reset();
+		m_.reset();
+		P_.setIdentity();
+		#ifdef USE_sparse
+			SparseMatrix<scalar_type> ref(n, n);
+			ref.setIdentity();
+			l_ = ref;
+			f_x_2 = ref;
+			f_x_1 = ref;
+		#endif
+		F_x1.setIdentity();
+		F_x2.setIdentity();
+		L_.Identity();
+	}
+
+	void reset(const state &x0)
+	{
+		x_ = x0;
+		m_.reset();
+		P_.setIdentity();
+		#ifdef USE_sparse
+			SparseMatrix<scalar_type> ref(n, n);
+			ref.setIdentity();
+			l_ = ref;
+			f_x_2 = ref;
+			f_x_1 = ref;
+		#endif
+		F_x1.setIdentity();
+		F_x2.setIdentity();
+		L_.Identity();
+	}
+
 	//receive system-specific models and their differentions.
 	//for measurement as an Eigen matrix whose dimention is chaing.
 	void init_dyn(processModel f_in, processMatrix1 f_x_in, processMatrix2 f_w_in, measurementModel_dyn h_in, measurementMatrix1_dyn h_x_in, measurementMatrix2_dyn h_v_in, int maximum_iteration, scalar_type limit_vector[n])

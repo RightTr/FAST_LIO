@@ -111,6 +111,13 @@ struct S2 {
 	vect_type vec; 
 	
 public:
+
+	static S2 Zero() {
+		S2 g;
+		g.vec.setZero();
+		return g;
+	}
+
 	S2() {
 		if(S2_typ == 3) vec=length * vec3(0, 0, std::sqrt(1));
 		if(S2_typ == 2) vec=length * vec3(0, std::sqrt(1), 0);

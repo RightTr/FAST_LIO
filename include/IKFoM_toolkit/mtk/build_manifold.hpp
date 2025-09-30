@@ -82,10 +82,36 @@
 
 #include <boost/preprocessor/seq.hpp>
 #include <boost/preprocessor/cat.hpp>
+#include <boost/preprocessor/control/iif.hpp>
 #include <Eigen/Core>
 
 #include "src/SubManifold.hpp"
 #include "startIdx.hpp"
+
+template<typename T>
+inline void reset_helper(T &var) {
+    var = T();
+}
+
+template<typename _scalar, int Options>
+inline void reset_helper(MTK::SO3<_scalar, Options> &var) {
+    var = MTK::SO3<_scalar, Options>::Identity();
+}
+
+template<int N, typename scalar, int Options>
+inline void reset_helper(MTK::vect<N, scalar, Options> &var) {
+    var.Zero();
+}
+
+template<typename _scalar, int A, int B, int C>
+inline void reset_helper(MTK::S2<_scalar, A, B, C> &var) {
+    var.Zero();
+}
+
+template<typename Type, int idx, int dim>
+inline void reset_helper(MTK::SubManifold<Type, idx, dim> &var) {
+    reset_helper(static_cast<Type&>(var));
+}
 
 #ifndef PARSED_BY_DOXYGEN
 //////// internals //////
@@ -150,6 +176,8 @@ BOOST_PP_FOR_1( \
 		dim + BOOST_PP_TUPLE_ELEM_2_0 head::DIM,\
 		S2state,\
 		SO3state)
+
+#define MTK_RESET_ENTRY(type, name) reset_helper(name);
 
 #endif /* not PARSED_BY_DOXYGEN */
 
@@ -222,6 +250,9 @@ struct name { \
 	friend std::istream& operator>>(std::istream& __is, name& __var){ \
 		return __is MTK_TRANSFORM(MTK_ISTREAM, entries); \
 	} \
+	void reset() {\
+		MTK_TRANSFORM(MTK_RESET_ENTRY, entries); \
+	}\
 };
 
 
