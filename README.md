@@ -1,6 +1,6 @@
-## Modifeid and Adapted Version of FAST-LIO
+# Modifeid and Adapted Version of FAST-LIO
 
-### ROS2 Adaption
+## ROS2 Adaption
 
 **Build:**
 
@@ -29,11 +29,11 @@ source install/setup.bash
 ros2 launch fast_lio mapping_mid360.launch.py
 ```
 
-### Relocalization Mode
+## Relocalization mode
 
-This version supports relocalization using manually set odometry poses. Once odometry poses are published to the */reloc_topic* (according to the following .yaml file), the system will reset the IKF and the current pose according to your input.
+This version supports relocalization using manually set odometry poses. Once odometry poses are published to the */reloc_topic* (according to the following .yaml file), the system will reset the system and the initial pose according to your input.
 
-Run Relocalization Mode:
+Run relocalization mode:
 
 ```bash
 # e.g.
@@ -50,18 +50,13 @@ ros2 launch fast_lio reloc_mid360.launch.py
 # Publish geometry_msgs::msg::PoseStamped to the /reloc_topic
 ```
 
-### High Frequency Odometry based on IMU Propagation
+## High Frequency Odometry via IMU propagation bwtween LiDAR scans
 
-Subscribe the topic named /OdometryHighFreq to receive high frequency odometry output based on IMU propagation.
+Subscribe the topic named */OdometryHighFreq* to receive high frequency odometry output via IMU propagation bwtween LiDAR scans.
 
-### RoboSense Serials LiDAR Adpation
+## RoboSense Series LiDAR Adpation
 
 Now, FAST-LIO supports tracking and mapping using the RoboSense LiDARs (e.g., RoboSense Airy). Check the related files in ./config and ./launch folder.
-
-## TODO List
-
-* Robosense Airy LiDAR Support ✅ (2026.1.24)
-* Robosense Airy Adaption Test
 
 ## Related Works and Extended Application
 
